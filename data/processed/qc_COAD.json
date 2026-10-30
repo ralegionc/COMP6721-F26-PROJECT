@@ -1,0 +1,16 @@
+{
+  "maf_files": 457,
+  "rows_read": 252773,
+  "after_snv_filter": 226287,
+  "caller_column": "callers",
+  "after_caller_filter": 212316,
+  "after_sample_type_filter": 212188,
+  "after_dedup": 212188,
+  "unresolved_positions": 0,
+  "ref_mismatches": 0,
+  "ref_mismatch_rate": 0.0,
+  "mutations_in_catalog": 212188,
+  "samples": 454,
+  "mutations_per_sample_median": 121.0,
+  "samples_under_100_mutations": 154
+}

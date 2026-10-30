@@ -1,0 +1,8 @@
+,est_SBS1,est_SBS5,est_SBS7a,est_SBS7b,est_SBS7c,est_SBS7d,est_SBS38
+true_SBS1,43,8,1,4,3,3,5
+true_SBS5,9,40,1,4,3,3,1
+true_SBS7a,2,1,27,3,2,0,1
+true_SBS7b,3,7,2,44,2,3,0
+true_SBS7c,5,3,0,2,44,4,2
+true_SBS7d,2,6,2,1,2,61,0
+true_SBS38,3,3,1,0,2,1,31

@@ -1,0 +1,11 @@
+# Raw and large generated data (rebuilt from manifest and seeds)
+data/raw/
+data/sims/
+# Reference genome (about 3 GB, re-downloaded from the GDC); the small COSMIC file stays tracked
+data/reference/*.fa
+data/reference/*.fa.fai
+data/reference/*.tar.gz
+data/reference/*.part
+__pycache__/
+*.pyc
+.pytest_cache/

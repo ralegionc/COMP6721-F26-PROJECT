@@ -1,0 +1,2 @@
+n_smokers,n_never,median_smokers,median_never,mannwhitney_U,mannwhitney_p,spearman_rho_pack_years,spearman_p,n_pack_years
+424,69,0.503240189366239,0.028861518922623154,24904.5,3.678330070371453e-21,0.07544613192581809,0.16020935141980677,348

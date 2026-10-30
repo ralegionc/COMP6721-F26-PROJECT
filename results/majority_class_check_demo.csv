@@ -1,0 +1,4 @@
+cancer,absent_label_rate,always_absent_accuracy,always_absent_recall,always_absent_f1,accuracy_would_overstate
+LUAD,0.39749999999999996,0.39749999999999996,0.0,0.0,False
+SKCM,0.40249999999999997,0.40249999999999997,0.0,0.0,False
+COAD,0.39625,0.39625,0.0,0.0,False

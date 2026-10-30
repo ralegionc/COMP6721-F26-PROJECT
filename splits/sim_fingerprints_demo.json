@@ -1,0 +1,11 @@
+{
+  "demo/LUAD_train.npz": "a2ebad2417d0c581a3c6eb73b470e7b16b936cc64174eb4d9b863fb6053f05a1",
+  "demo/LUAD_val.npz": "5a86d35c0f95c8f502124431e6e56ffea9af6987251f96c685b6b58b1f9e3774",
+  "demo/LUAD_test.npz": "d318359c456bf1ad4c7caa99c1240b1285c000059dc622b7c07d460e9b3f6077",
+  "demo/SKCM_train.npz": "ff8bc8dc455ca8462c3edb28f2a0a52e266a336fdb3d40b08e4589783b1f676d",
+  "demo/SKCM_val.npz": "d641455d6d7543e799cbd314c78227f52e21b4608628637a28284e0e10df271b",
+  "demo/SKCM_test.npz": "0ee6a3de6b10f6282b686cc3d2104c47f3e7e2b73ce23f97bbda9e08ea66fd44",
+  "demo/COAD_train.npz": "1c3d4b84a311037b2edd361b47851887d007ae1abc01c74bf8b2fc16d18c19ae",
+  "demo/COAD_val.npz": "dac507eec6701db1c7eb32f2643161f9b566390ad6a7331b15423d18105dfde1",
+  "demo/COAD_test.npz": "18051d9e96693bc6daad351d3a358ddd0eed390614307ca8ff396f7fd7baa0f1"
+}
