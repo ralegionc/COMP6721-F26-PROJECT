@@ -46,4 +46,5 @@ excluding known sequencing artifacts.
 - Hugo Xu: simulator, classical methods, statistical tests.
 - Bao Tran Nguyen: neural network (M3), evaluation and figures.
 
-Limitations and the plan for Weeks 9 to 13 are in `results/week8_progress.md`.
+`TEAM_GUIDE.md` explains every file in the repository and how a run fits together. Limitations and the
+plan for Weeks 9 to 13 are in `results/week8_progress.md`.
