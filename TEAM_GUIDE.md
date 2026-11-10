@@ -25,7 +25,7 @@ pytest -q
 python run_checklist.py --signatures data/reference/COSMIC_v3.4_SBS_GRCh38_exome.txt
 ```
 
-- `pytest -q` should report 22 passed.
+- `pytest -q` should report 28 passed.
 - The last command reruns the full real-data experiment in under a minute. It does **not** need the raw
   TCGA downloads or the 3 GB reference genome: their processed output is already in `data/processed/`.
 - Afterwards, `git status` should show no changed files under `results/`, which confirms that the run
@@ -53,8 +53,9 @@ python run_checklist.py --signatures data/reference/COSMIC_v3.4_SBS_GRCh38_exome
    2. fit NNLS to the real training tumors and calibrate the simulator on them
    3. simulate train/val/test tumors (once)   ──> data/sims/ (not in Git), splits/sim_fingerprints_real.json
    4. fit B0, M0, M1, M2 on train/val; score on the simulated test tumors
-   5. smoking test and negative controls on real LUAD/SKCM tumors
-   6. write tables, figure and summary        ──> results/, figures/
+   5. paired Wilcoxon tests between methods, Holm-corrected
+   6. smoking test and negative controls on real LUAD/SKCM tumors
+   7. write tables, figure and summary        ──> results/, figures/
 ```
 
 Steps 1 and 3 happen only the first time. Later runs reload the saved files and check their SHA-256
@@ -67,6 +68,7 @@ fingerprints, so every method is always scored on exactly the same split and the
 | File | What it does | When to run it |
 | --- | --- | --- |
 | `run_checklist.py` | The main experiment. Loads the data, makes or loads the split, simulates tumors, fits every method, computes all metrics, runs the smoking test, and writes `results/` and `figures/`. Also answers the instructor's six checklist questions in the run summary. | Yes, after any change to methods or metrics. |
+| `run_method_tests.py` | Reruns only the paired Wilcoxon comparisons from the saved per-tumor scores (`--demo` for the demo run) and rewrites `results/method_tests_<source>.csv`. | Only when changing the tests; `run_checklist.py` already runs them. |
 | `gdc_download.py` | Downloads the 1,547 open-access TCGA mutation files (MAFs) and clinical records from the GDC API, checks each file's MD5 checksum, and writes `data/manifest.csv`. `--dry-run` only lists what it would download. | Not needed; its processed output is in `data/processed/`. |
 | `preprocess_data.py` | Turns the raw MAFs into mutation counts per tumor over the 96 contexts, using the reference genome to look up neighbouring bases, and builds the clinical table. Needs `--reference <genome .fa>`. | No, unless we change a preprocessing filter. |
 | `derive_signature_subsets.py` | Decides which signatures we fit for each cancer type, using published TCGA results (kept if seen in at least 5% of that type's tumors, artifacts excluded). Prints the lists that go into `sigdet/config.py`. | Only if we change the 5% rule. |
@@ -76,9 +78,9 @@ fingerprints, so every method is always scored on exactly the same split and the
 | File | What it contains |
 | --- | --- |
 | `config.py` | All fixed settings: random seed (6721), split fractions, 5% presence threshold, 0.90 breakdown threshold, the mutation counts tested (25 to 5,000), the 96 context names, artifact signatures, and the signature list per cancer type. **Changing anything here changes every result.** |
-| `methods.py` | The estimation methods, all with the same `fit(train, val)` / `predict(counts)` interface: **B0** (always predicts the training average; our "dumb" baseline), **M0** NNLS (non-negative least squares), **M1** elastic-net NNLS (penalty tuned on validation data), **M2** multinomial maximum likelihood via the EM algorithm, with bootstrap intervals. **M3 goes here.** |
-| `metrics.py` | How we score methods: cosine similarity per tumor, mean absolute error on truly present signatures, per-signature precision/recall/F1/PR-AUC, the confusion matrix of dominant signatures, the breakdown point N\*, and the "always absent" check that shows why accuracy is misleading. |
-| `simulate.py` | The simulator. `calibrate()` learns typical exposures and mutation counts from **training patients only**; `simulate()` draws tumors with known exposures, adding extra noise and slightly distorted signatures so the test is not too easy. |
+| `methods.py` | The estimation methods, all with the same `fit(train, val)` / `predict(counts)` interface: **B0** (always predicts the training average; our "dumb" baseline), **M0** NNLS (non-negative least squares), **M1** elastic-net NNLS (penalty strength and L1 share chosen on validation data from a 9 x 3 grid, by MAE on present signatures), **M2** multinomial maximum likelihood via the EM algorithm, with bootstrap intervals. **M3 goes here.** |
+| `metrics.py` | How we score methods: cosine similarity per tumor, mean absolute error on truly present signatures, per-signature precision/recall/F1/PR-AUC, the confusion matrix of dominant signatures, the breakdown point N\*, the "always absent" check that shows why accuracy is misleading, and the paired Wilcoxon tests with Holm correction that compare methods (`compare_methods`). |
+| `simulate.py` | The simulator. `calibrate()` learns typical exposures and mutation counts from **training patients only**; `simulate()` draws tumors with known exposures, adding extra noise and slightly distorted signatures so the test is not too easy. `n_active=(1, 3)` instead gives sparse tumors with 1 to 3 random active signatures. |
 | `splits.py` | The patient-level split. Extracts the 12-character patient ID from TCGA barcodes, splits patients (not samples) stratified by cancer type, checks that no patient appears in two partitions, and saves or loads the split with a tamper-check fingerprint. |
 | `target.py` | Defines what we predict (the exposure vector) and validates it (non-negative, sums to 1). Also loads the COSMIC signature file and picks each cancer type's subset. |
 | `labels.py` | Defines the positive classes: a signature is "present" at 5% or more; for smoking, current or former smokers are positive, lifelong non-smokers negative, unknown excluded. Maps the GDC's smoking-status text to these labels. |
@@ -95,6 +97,7 @@ fingerprints, so every method is always scored on exactly the same split and the
 | --- | --- |
 | `test_checklist.py` | One or more tests per checklist question: valid exposure vectors, no artifact signatures, patient-level split with leak detection, simulator uses training patients only, positive-class definitions, accuracy inflation, NNLS beating B0, breakdown point, split reproducibility and tamper detection, storage layout. |
 | `test_preprocess.py` | Preprocessing on a tiny fake genome: context counting and strand folding, wrong-genome detection, caller-column handling, clinical parsing, and that M1/M2 recover known exposures. |
+| `test_methods_and_stats.py` | Holm correction against a hand computation, Wilcoxon against SciPy, tumor-by-tumor pairing in `compare_methods`, per-tumor MAE, M1's full grid search, and the sparse simulator option. |
 
 We run them with `pytest -q`, and new code comes with new tests.
 
@@ -127,7 +130,8 @@ Every file exists twice: `_real` (real data, the one that matters) and `_demo` (
 | `week8_progress.md` | Our Week 8 write-up: data pipeline, answers to the six questions, results, limitations and plan. **Start here.** |
 | `run_summary_real.md` | Human-readable summary of the latest run: checklist answers, results table, breakdown points, smoking test. |
 | `summary_real.csv` | One row per cancer type and method: median cosine, MAE, macro/micro F1, PR-AUC, accuracy. |
-| `per_tumor_cosine_real.csv` | Cosine score for every simulated test tumor, with its mutation count. Input for paired tests and plots. |
+| `per_tumor_cosine_real.csv` | Cosine and MAE (present signatures) for every simulated test tumor, with its mutation count and a `tumor` position shared across methods. Input for paired tests and plots. |
+| `method_tests_real.csv` | Paired Wilcoxon test for every pair of methods, per cancer type, pooled (`n` = all) and at each mutation count, with Holm-adjusted p-values. |
 | `breakdown_point_real.csv` | N\* per method and cancer type. |
 | `presence_per_signature_real.csv` | Precision, recall, F1 and PR-AUC for each signature, method and cancer type. |
 | `confusion_<TYPE>_<method>_real.csv` | For M0 and M2: how often each true dominant signature was estimated as each signature. |
@@ -154,11 +158,11 @@ Every file exists twice: `_real` (real data, the one that matters) and `_demo` (
 ## 5. Where new work goes
 
 **Classical methods and statistics**
-- M1's penalty grid lives in `M1ElasticNetNNLS` (`sigdet/methods.py`). The smallest value currently
-  always wins, so M1 equals M0; the grid needs widening.
-- Paired Wilcoxon tests with Holm correction belong in `sigdet/metrics.py`, called from
-  `run_checklist.py`. `results/per_tumor_cosine_real.csv` holds the per-tumor scores; rows for different
-  methods line up tumor by tumor within each cancer type.
+- M1's search grid is `M1_ALPHAS` and `M1_L1_RATIOS` at the top of the M1 class in `sigdet/methods.py`.
+- New statistical tests go in `sigdet/metrics.py` and are called from `run_checklist.py`, so they always
+  run on the same saved test tumors. `compare_methods` pairs methods through the `tumor` column.
+- Simulator variants (for example sparse tumors via `n_active`) are options of `simulate()` in
+  `sigdet/simulate.py`, not a separate simulator.
 
 **Neural network (M3), evaluation and figures**
 - M3 is a class in `sigdet/methods.py` with a `name` attribute, `fit(train, val=None)` and
@@ -170,7 +174,9 @@ Every file exists twice: `_real` (real data, the one that matters) and `_demo` (
 **Ground rules**
 - Nothing in `splits/` is edited or regenerated, and `sigdet/config.py` changes only by team agreement.
 - `data/sims/` and `data/raw/` stay out of Git (`.gitignore` already blocks them).
-- Committed results are the `_real` files from a run with `--signatures`.
+- Committed results are the `_real` files from a run with `--signatures`. Outputs go to `results/`
+  and `figures/`; `data/processed/` holds only the real-data inputs.
+- Scripts build paths from `sigdet.storage.ensure_dirs()`, so they work from any folder.
 
 ## 6. How we use Git
 

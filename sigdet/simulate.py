@@ -8,6 +8,10 @@ We added realism knobs, so no method is tested only on its own assumptions:
   multinomial) instead of an idealized multinomial. Lower = noisier.
 - perturb: we randomly distort each tumor's signatures around the
   reference profiles. Lower = larger distortions.
+- n_active: instead of the calibrated mixture, each tumor uses a random
+  1 to 3 (by default) of the type's signatures with equal-weight Dirichlet
+  shares. This gives sparse tumors whose make-up does not follow the
+  training cohort, a harder test of presence detection.
 """
 import numpy as np
 import pandas as pd
@@ -67,11 +71,13 @@ def assert_calibrated_on_train(stats, split):
 
 
 def simulate(stats, signatures, n_tumors, rng, n_mutations=None,
-             overdispersion=200.0, perturb=500.0, n_bounds=(10, 20000)):
+             overdispersion=200.0, perturb=500.0, n_bounds=(10, 20000), n_active=None):
     """We draw simulated tumors.
 
     n_mutations: int for a fixed count (E2 grid), or None to sample counts
         from the calibrated distribution.
+    n_active: None for calibrated exposures, or (low, high) for sparse
+        exposures with low to high active signatures per tumor.
     Returns dict with counts (tumors x 96), exposures (tumors x K) and
     n_mutations (tumors,).
     """
@@ -79,7 +85,18 @@ def simulate(stats, signatures, n_tumors, rng, n_mutations=None,
     S = S / S.sum(axis=0, keepdims=True)
     alpha = np.asarray(stats["alpha"], dtype=float)
     # Step 1: the true exposures, one Dirichlet draw per tumor.
-    E = rng.dirichlet(alpha, size=n_tumors)
+    if n_active is None:
+        E = rng.dirichlet(alpha, size=n_tumors)
+    else:
+        low, high = n_active
+        K = len(alpha)
+        if not 1 <= low <= high <= K:
+            raise ValueError(f"n_active must satisfy 1 <= low <= high <= {K}")
+        E = np.zeros((n_tumors, K))
+        for i in range(n_tumors):
+            # We pick which signatures are active, then split the tumor among them evenly on average.
+            active = rng.choice(K, size=rng.integers(low, high + 1), replace=False)
+            E[i, active] = rng.dirichlet(np.ones(len(active)))
 
     # Step 2: how many mutations each tumor has.
     if n_mutations is None:

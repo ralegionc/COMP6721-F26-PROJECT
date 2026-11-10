@@ -24,8 +24,9 @@ from sigdet.clinical import load_clinical
 from sigdet.config import CANCER_SIGNATURES, CONTEXTS, N_GRID, SEED
 from sigdet.labels import POSITIVE_CLASS, smoking_labels
 from sigdet.methods import B0CohortMean, M0NNLS, M1ElasticNetNNLS, M2MultinomialEM
-from sigdet.metrics import (breakdown_point, confusion_matrix_signatures, cosine_per_tumor,
-                            mae_active, majority_class_check, presence_report)
+from sigdet.metrics import (breakdown_point, compare_methods, confusion_matrix_signatures,
+                            cosine_per_tumor, mae_active, mae_active_per_tumor,
+                            majority_class_check, presence_report)
 from sigdet.realdata import negative_control, smoking_test
 from sigdet.simulate import assert_calibrated_on_train, calibrate, simulate
 from sigdet.splits import (assert_no_patient_leak, assign_partition, load_split,
@@ -169,12 +170,16 @@ def main():
         for m in methods:
             m.fit(sets["train"], val=sets["val"])
             if isinstance(m, M1ElasticNetNNLS):
-                m1_alphas[cancer] = m.alpha_
+                m1_alphas[cancer] = {"alpha": m.alpha_, "l1_ratio": m.l1_ratio_}
             pred = m.predict(test["counts"])
             validate_exposures(pred, names)  # each method's output must meet the Q1 definition
             cos = cosine_per_tumor(test["exposures"], pred)
+            # "tumor" is the test tumor's position, the same for every method,
+            # so the statistical tests can pair methods tumor by tumor.
             per_tumor.append(pd.DataFrame({"cancer": cancer, "method": m.name,
-                                           "n": test["n_mutations"], "cosine": cos}))
+                                           "tumor": np.arange(len(cos)), "n": test["n_mutations"],
+                                           "cosine": cos,
+                                           "mae_active": mae_active_per_tumor(test["exposures"], pred)}))
             table, summ = presence_report(test["exposures"], pred, names)
             presence.append(table.assign(cancer=cancer, method=m.name))
             summary.append({"cancer": cancer, "method": m.name, "median_cosine": float(np.median(cos)),
@@ -196,6 +201,9 @@ def main():
     save_results(pd.concat(presence, ignore_index=True), f"presence_per_signature_{source}", paths)
     save_results(majority, f"majority_class_check_{source}", paths)
     save_results(breakdown, f"breakdown_point_{source}", paths, index=True)
+    # Paired Wilcoxon tests between every pair of methods, Holm-corrected.
+    tests = compare_methods(per_tumor)
+    save_results(tests, f"method_tests_{source}", paths)
 
     # One panel per cancer type: median cosine vs mutation count, with the 0.90 line for N*.
     fig, axes = plt.subplots(1, len(subsets), figsize=(4.2 * len(subsets), 3.4), sharey=True)
@@ -264,6 +272,15 @@ def main():
     for method, row in breakdown.iterrows():
         lines.append(f"| {method} | " + " | ".join("not reached" if pd.isna(v) else f"{int(v)}" for v in row) + " |")
     lines += ["", f"M1 penalty chosen on validation data: {m1_alphas}"]
+    pooled = tests[tests["n"] == "all"]
+    lines += ["", "## Paired Wilcoxon tests (all mutation counts pooled, Holm-corrected)", "",
+              "Median difference is method A minus method B; \"A higher\" is the share of tumors "
+              "where A scores higher. Higher cosine and lower MAE are better.", "",
+              "| cancer | metric | A | B | median diff | A higher | p (Holm) |",
+              "| --- | --- | --- | --- | --- | --- | --- |"]
+    for r in pooled.itertuples():
+        lines.append(f"| {r.cancer} | {r.metric} | {r.method_a} | {r.method_b} | "
+                     f"{r.median_difference:+.4f} | {r.a_higher_fraction:.0%} | {r.p_holm:.2g} |")
     if e5:
         lines += ["", "## E5 smoking test (LUAD, real data)", "", json.dumps(e5, indent=1)]
     (paths["results"] / f"run_summary_{source}.md").write_text("\n".join(lines) + "\n")

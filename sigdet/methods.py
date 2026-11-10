@@ -17,6 +17,8 @@ from scipy.optimize import nnls
 from sklearn.exceptions import ConvergenceWarning
 from sklearn.linear_model import ElasticNet
 
+from .config import PRESENCE_THRESHOLD
+
 
 def _normalize(x):
     """We rescale weights to sum to 1; if all are zero we spread them evenly."""
@@ -70,26 +72,34 @@ class M0NNLS:
         return out
 
 
+# M1's search grid. The penalty strength spans four orders of magnitude, from
+# effectively plain NNLS (1e-7) to strong enough to zero out most signatures
+# (1e-3); the L1 share runs from mostly ridge (0.1) to mostly lasso (0.9).
+M1_ALPHAS = (1e-7, 3e-7, 1e-6, 3e-6, 1e-5, 3e-5, 1e-4, 3e-4, 1e-3)
+M1_L1_RATIOS = (0.1, 0.5, 0.9)
+
+
 class M1ElasticNetNNLS:
     """NNLS plus a penalty that pushes small weights to exactly zero (L1)
     and shrinks correlated weights together (L2). We choose the penalty
-    strength on the VALIDATION set only, never on test data (Q2)."""
+    strength and the L1 share on the VALIDATION set only, never on test
+    data (Q2), by the lowest MAE on truly present signatures."""
     name = "M1_elastic_net"
 
-    def __init__(self, signature_matrix, alphas=(1e-7, 1e-6, 1e-5, 1e-4), l1_ratio=0.9):
+    def __init__(self, signature_matrix, alphas=M1_ALPHAS, l1_ratios=M1_L1_RATIOS):
         self.S = _unit_columns(signature_matrix)
-        self.alphas, self.l1_ratio = alphas, l1_ratio
+        self.alphas, self.l1_ratios = tuple(alphas), tuple(l1_ratios)
         # Until fit() sees validation data, we use the weakest penalty.
-        self.alpha_ = alphas[0]
+        self.alpha_, self.l1_ratio_ = self.alphas[0], self.l1_ratios[-1]
 
-    def _fit_one(self, c, alpha):
-        """We fit one tumor with penalty strength alpha."""
+    def _fit_one(self, c, alpha, l1_ratio):
+        """We fit one tumor with penalty strength alpha and L1 share l1_ratio."""
         if c.sum() == 0:
             return np.full(self.S.shape[1], 1.0 / self.S.shape[1])
         with warnings.catch_warnings():
             # Tiny penalties converge slowly; the result is still usable, so we silence the warning.
             warnings.simplefilter("ignore", ConvergenceWarning)
-            m = ElasticNet(alpha=alpha, l1_ratio=self.l1_ratio, positive=True,
+            m = ElasticNet(alpha=alpha, l1_ratio=l1_ratio, positive=True,
                            fit_intercept=False, max_iter=5000).fit(self.S, c / c.sum())
         return _normalize(np.clip(m.coef_, 0, None))
 
@@ -97,15 +107,23 @@ class M1ElasticNetNNLS:
         if val is not None:
             counts = np.asarray(val["counts"], dtype=float)
             truth = np.asarray(val["exposures"], dtype=float)
-            # We try every penalty on the validation tumors and keep the lowest error.
-            errs = {a: np.abs(np.array([self._fit_one(c, a) for c in counts]) - truth).mean()
-                    for a in self.alphas}
-            self.alpha_ = min(errs, key=errs.get)
+            present = truth >= PRESENCE_THRESHOLD
+            # We try every (penalty, L1 share) pair on the validation tumors
+            # and keep the lowest error on the signatures that are truly present.
+            errs = {}
+            for a in self.alphas:
+                for r in self.l1_ratios:
+                    pred = np.array([self._fit_one(c, a, r) for c in counts])
+                    errs[(a, r)] = float(np.abs(pred - truth)[present].mean())
+            self.alpha_, self.l1_ratio_ = min(errs, key=errs.get)
             self.val_mae_ = errs
+            # A best penalty at the edge of the grid means the grid may be too narrow.
+            self.at_grid_edge_ = self.alpha_ in (self.alphas[0], self.alphas[-1])
         return self
 
     def predict(self, counts):
-        return np.array([self._fit_one(c, self.alpha_) for c in np.asarray(counts, dtype=float)])
+        return np.array([self._fit_one(c, self.alpha_, self.l1_ratio_)
+                         for c in np.asarray(counts, dtype=float)])
 
 
 class M2MultinomialEM:

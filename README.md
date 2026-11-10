@@ -11,7 +11,7 @@ estimates stop being reliable. Our outputs are research estimates, not diagnoses
 
 ```
 pip install -r requirements.txt
-pytest -q                  # 22 tests
+pytest -q                  # 28 tests
 python run_checklist.py    # synthetic demo, about 20 seconds
 ```
 
@@ -35,7 +35,7 @@ excluding known sequencing artifacts.
 
 | Path | Contents |
 | --- | --- |
-| `sigdet/` | Preprocessing, splits, simulator, methods (B0, M0, M1, M2) and metrics |
+| `sigdet/` | Preprocessing, splits, simulator, methods (B0, M0, M1, M2), metrics and paired tests |
 | `results/`, `figures/`, `splits/` | Our outputs; `results/week8_progress.md` is the Week 8 write-up |
 | `data/processed/`, `data/reference/` | Mutation counts, clinical labels and small reference tables |
 | `data/raw/`, genome files | Not committed; rebuilt from `data/manifest.csv` and the steps above |

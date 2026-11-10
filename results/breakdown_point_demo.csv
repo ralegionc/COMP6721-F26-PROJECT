@@ -1,5 +1,5 @@
 ,COAD,LUAD,SKCM
 B0_cohort_mean,,,
 M0_nnls,250.0,50.0,100.0
-M1_elastic_net,250.0,50.0,100.0
+M1_elastic_net,1000.0,100.0,50.0
 M2_multinomial_em,100.0,50.0,50.0
