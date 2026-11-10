@@ -121,13 +121,15 @@ We run them with `pytest -q`, and new code comes with new tests.
 | `sim_fingerprints_real.json` | Checksums of the nine simulated sets (3 cancer types x train/val/test). |
 | `*_demo.json` | The same for the synthetic demo. |
 
-### `results/` (all written by `run_checklist.py`, except `week8_progress.md`)
+### `results/` (all written by `run_checklist.py`, except the `.md` write-ups listed first)
 
 Every file exists twice: `_real` (real data, the one that matters) and `_demo` (synthetic).
 
 | File | Contents |
 | --- | --- |
-| `week8_progress.md` | Our Week 8 write-up: data pipeline, answers to the six questions, results, limitations and plan. **Start here.** |
+| `preliminary_report_draft.md` | Draft of the final report (abstract to references) for lab discussion. **Start here.** |
+| `progress_report.md` | Status report: work done so far and Weeks 10 to 13 plan with owners. |
+| `week8_progress.md` | Our Week 8 write-up: data pipeline, answers to the six questions, results, limitations and plan. |
 | `run_summary_real.md` | Human-readable summary of the latest run: checklist answers, results table, breakdown points, smoking test. |
 | `summary_real.csv` | One row per cancer type and method: median cosine, MAE, macro/micro F1, PR-AUC, accuracy. |
 | `per_tumor_cosine_real.csv` | Cosine and MAE (present signatures) for every simulated test tumor, with its mutation count and a `tumor` position shared across methods. Input for paired tests and plots. |
@@ -145,6 +147,7 @@ Every file exists twice: `_real` (real data, the one that matters) and `_demo` (
 | File | Contents |
 | --- | --- |
 | `cosine_vs_mutation_count_real.png` | Median cosine against mutation count for each method and cancer type, with the 0.90 line that defines N\*. |
+| `e5_sbs4_smoking_real.png` | Estimated SBS4 weight per LUAD patient, lifelong non-smokers against smokers. |
 
 ### Other files
 

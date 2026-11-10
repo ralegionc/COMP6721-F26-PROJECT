@@ -27,7 +27,7 @@ from sigdet.methods import B0CohortMean, M0NNLS, M1ElasticNetNNLS, M2Multinomial
 from sigdet.metrics import (breakdown_point, compare_methods, confusion_matrix_signatures,
                             cosine_per_tumor, mae_active, mae_active_per_tumor,
                             majority_class_check, presence_report)
-from sigdet.realdata import negative_control, smoking_test
+from sigdet.realdata import negative_control, per_patient, smoking_test
 from sigdet.simulate import assert_calibrated_on_train, calibrate, simulate
 from sigdet.splits import (assert_no_patient_leak, assign_partition, load_split,
                            make_patient_split, patient_id, save_split)
@@ -234,6 +234,21 @@ def main():
                                index=catalogs.index[mask], columns=cols)
             controls.append(negative_control(fit, set(extra), label))
         save_results(pd.DataFrame([e5]), f"e5_smoking_{source}", paths)
+
+        # Figure: per-patient SBS4 weight in smokers and lifelong non-smokers.
+        w = per_patient(real_fits["LUAD"])["SBS4"].rename("weight")
+        groups = clinical.join(w, how="inner").dropna(subset=["smoker"])
+        data = [groups.loc[groups["smoker"] == k, "weight"] for k in (0, 1)]
+        fig, ax = plt.subplots(figsize=(4.2, 3.4))
+        ax.boxplot(data, widths=0.5, showfliers=False)
+        jitter = np.random.default_rng(SEED)  # fixed seed so the figure is identical on every run
+        for i, d in enumerate(data, start=1):
+            ax.scatter(i + jitter.uniform(-0.15, 0.15, len(d)), d, s=6, alpha=0.4, color="tab:blue")
+        ax.set_xticks([1, 2], [f"lifelong non-smoker\n(n = {len(data[0])})",
+                               f"current or reformed\nsmoker (n = {len(data[1])})"])
+        ax.set_ylabel("estimated SBS4 weight (NNLS)")
+        ax.set_title(f"LUAD: SBS4 by smoking status (p = {e5.get('mannwhitney_p', np.nan):.1e})", fontsize=9)
+        save_figure(fig, f"e5_sbs4_smoking_{source}", paths)
         save_results(pd.DataFrame(controls), f"e5_negative_controls_{source}", paths)
 
     # ---- checklist report ------------------------------------------------
