@@ -1,0 +1,9 @@
+,est_SBS1,est_SBS2,est_SBS5,est_SBS13,est_SBS15,est_SBS17b,est_SBS40a,est_SBS44
+true_SBS1,144,0,14,0,0,0,6,1
+true_SBS2,0,1,0,0,0,0,1,0
+true_SBS5,29,0,125,1,0,1,20,1
+true_SBS13,0,0,1,0,0,0,0,0
+true_SBS15,0,0,0,0,1,0,0,0
+true_SBS17b,0,0,0,0,0,0,0,0
+true_SBS40a,12,1,12,0,1,0,21,1
+true_SBS44,2,0,2,0,0,0,0,2

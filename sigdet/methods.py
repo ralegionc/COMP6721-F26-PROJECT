@@ -6,7 +6,8 @@ runs on all of them (Q5):
 
 B0  trivial baseline (Q4)            M0  NNLS baseline
 M1  elastic-net NNLS                 M2  multinomial maximum likelihood (EM)
-Our M3 (small MLP) will plug in with the same two methods.
+M3  small neural network (MLP) trained on simulated tumors; M3_mlp_broad
+    is the same network with extra flat-prior training tumors.
 None of these is Bayesian: each returns one best estimate. M2 adds
 bootstrap intervals, which are frequentist.
 """
@@ -176,3 +177,147 @@ class M2MultinomialEM:
             boots = np.array([self._em(rng.multinomial(n, p).astype(float)) for _ in range(n_boot)])
             lo[i], hi[i] = np.percentile(boots, q, axis=0)
         return lo, hi
+
+
+# ---------------------------------------------------------------------------
+# M3: neural network
+# ---------------------------------------------------------------------------
+
+def _mlp_features(counts):
+    """Our network input: the square root of each context's share of the tumor's
+    mutations (96 values), plus log10(mutation count) / 4.
+
+    The square root evens out the noise: a context with few expected mutations
+    varies relatively more than a busy one, and sqrt is the standard fix for
+    count data. The mutation-count feature tells the network how noisy the
+    profile is, so it can learn to be more cautious with low-count tumors."""
+    C = np.asarray(counts, dtype=float)
+    n = C.sum(axis=1, keepdims=True)
+    share = np.divide(C, n, out=np.full_like(C, 1.0 / C.shape[1]), where=n > 0)
+    return np.hstack([np.sqrt(share), np.log10(np.maximum(n, 1)) / 4.0])
+
+
+def _thin(counts, exposures, n_copies, min_count, rng):
+    """Data augmentation by thinning: we keep a random subset of each tumor's
+    mutations. A random subset of a tumor's mutations comes from the same mix
+    of signatures, so the label (true exposures) stays exactly right. This
+    turns 1,000 training tumors into many tumors at every mutation count,
+    including the low counts where attribution is hard."""
+    C, E = [counts], [exposures]
+    for _ in range(n_copies):
+        Ci = counts.copy()
+        for i, c in enumerate(counts):
+            n = int(c.sum())
+            if n > min_count:
+                # New count drawn evenly on a log scale between min_count and n.
+                m = int(round(10 ** rng.uniform(np.log10(min_count), np.log10(n))))
+                Ci[i] = rng.multivariate_hypergeometric(c.astype(np.int64), m)
+        C.append(Ci)
+        E.append(exposures)
+    return np.vstack(C), np.vstack(E)
+
+
+class M3MLP:
+    """Our neural network (multi-layer perceptron), trained on simulated tumors,
+    built on scikit-learn's MLPRegressor.
+
+    Input: 97 features from _mlp_features. Two hidden layers with ReLU.
+    Output: one value per signature of the cancer type. MLPRegressor's output
+    layer is linear, so values can be negative and need not sum to 1; we set
+    negatives to 0 and divide each row by its sum, which gives a valid
+    exposure vector (Q1). Loss: squared error against the true exposures.
+    Adam optimizer; alpha is the L2 penalty on the weights (weight decay).
+
+    Early stopping uses OUR validation set (Q2). We do not use MLPRegressor's
+    early_stopping=True: it holds out a random 10% of the TRAINING rows, and
+    with thinning, copies of the same tumor would sit on both sides of that
+    split. Instead we train one epoch at a time with partial_fit and keep the
+    model with the lowest validation error.
+
+    Training data: the simulated training tumors, thinned to many mutation
+    counts (_thin). With broad=True we add tumors simulated with a flat,
+    uninformative prior over signatures (same simulator and noise settings),
+    so the network cannot rely only on the calibrated cancer-type mix.
+    That is our check of the risk that "M3 may only learn the simulator".
+
+    Defaults (hidden=(128, 64), alpha=0.1, n_augment=8) were chosen on
+    validation error only, by tune_m3.py (results/m3_tuning_real.csv).
+    Validation error is flat between alpha 0.03 and 0.1 (within 0.1%).
+    """
+
+    def __init__(self, signatures, hidden=(128, 64), n_augment=8, min_count=10,
+                 broad=False, n_broad=4000, broad_alpha=0.5, lr=1e-3, alpha=0.1,
+                 batch=128, max_epochs=300, patience=15, seed=None):
+        from .config import SEED
+        self.signatures = signatures  # DataFrame, 96 contexts x K signatures
+        self.hidden, self.n_augment, self.min_count = tuple(hidden), n_augment, min_count
+        self.broad, self.n_broad, self.broad_alpha = broad, n_broad, broad_alpha
+        self.lr, self.alpha, self.batch = lr, alpha, batch
+        self.max_epochs, self.patience = max_epochs, patience
+        self.seed = SEED if seed is None else seed
+        self.name = "M3_mlp_broad" if broad else "M3_mlp"
+
+    # ---- building the training data ---------------------------------------
+    def _broad_tumors(self, train, n, rng):
+        """Extra training tumors with a flat Dirichlet prior over signatures,
+        from our own simulator, with mutation counts like the training set."""
+        from .simulate import simulate
+        names = list(self.signatures.columns)
+        logn = np.log10(np.maximum(np.asarray(train["counts"]).sum(axis=1), 1))
+        stats = {"signatures": names, "alpha": [self.broad_alpha] * len(names),
+                 "log10_n_mean": float(logn.mean()), "log10_n_sd": float(logn.std(ddof=1))}
+        sim = simulate(stats, self.signatures, n, rng)
+        return sim["counts"], sim["exposures"]
+
+    def _data(self, part, rng, n_broad):
+        C = np.asarray(part["counts"], dtype=np.int64)
+        E = np.asarray(part["exposures"], dtype=float)
+        if self.broad:
+            extra = self._broad_tumors(part, n_broad, rng)
+            C, E = np.vstack([C, extra[0]]), np.vstack([E, extra[1]])
+        C, E = _thin(C, E, self.n_augment, self.min_count, rng)
+        return _mlp_features(C), E
+
+    @staticmethod
+    def _to_exposures(raw):
+        """Negatives to 0, then each row divided by its sum (uniform if all were negative)."""
+        P = np.clip(raw, 0, None)
+        s = P.sum(axis=1, keepdims=True)
+        return np.divide(P, s, out=np.full_like(P, 1.0 / P.shape[1]), where=s > 0)
+
+    # ---- training ------------------------------------------------------------
+    def fit(self, train, val=None):
+        import copy
+        from sklearn.neural_network import MLPRegressor
+        rng = np.random.default_rng([self.seed, 3, int(self.broad)])  # own stream per variant
+        X, Y = self._data(train, rng, self.n_broad)
+        if val is not None:
+            # We thin the validation tumors too, so early stopping also checks low counts.
+            Xv, Yv = self._data(val, rng, max(200, self.n_broad // 5))
+        else:
+            Xv, Yv = X, Y
+
+        net = MLPRegressor(hidden_layer_sizes=self.hidden, activation="relu", solver="adam",
+                           alpha=self.alpha, batch_size=self.batch, learning_rate_init=self.lr,
+                           shuffle=True, random_state=self.seed + int(self.broad))
+        best, bad = np.inf, 0
+        self.history_ = []
+        sub = rng.choice(len(X), size=min(len(X), len(Xv)), replace=False)  # fixed rows to track training error
+        for epoch in range(self.max_epochs):
+            net.partial_fit(X, Y)  # one pass over the training data
+            val_err = float(((net.predict(Xv) - Yv) ** 2).mean())
+            self.history_.append({"epoch": epoch + 1, "val_loss": val_err,
+                                  "train_loss": float(((net.predict(X[sub]) - Y[sub]) ** 2).mean())})
+            # Early stopping: we keep the model with the lowest validation error.
+            if val_err < best - 1e-7:
+                best, bad = val_err, 0
+                self.net_ = copy.deepcopy(net)
+            else:
+                bad += 1
+                if bad >= self.patience:
+                    break
+        self.best_val_loss_ = best
+        return self
+
+    def predict(self, counts):
+        return self._to_exposures(self.net_.predict(_mlp_features(counts)))

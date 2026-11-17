@@ -23,7 +23,7 @@ import pandas as pd
 from sigdet.clinical import load_clinical
 from sigdet.config import CANCER_SIGNATURES, CONTEXTS, N_GRID, SEED
 from sigdet.labels import POSITIVE_CLASS, smoking_labels
-from sigdet.methods import B0CohortMean, M0NNLS, M1ElasticNetNNLS, M2MultinomialEM
+from sigdet.methods import B0CohortMean, M0NNLS, M1ElasticNetNNLS, M2MultinomialEM, M3MLP
 from sigdet.metrics import (breakdown_point, compare_methods, confusion_matrix_signatures,
                             cosine_per_tumor, mae_active, mae_active_per_tumor,
                             majority_class_check, presence_report)
@@ -164,7 +164,9 @@ def main():
             fingerprints[f"{source}/{path.name}"] = sha256_file(path)
 
         test = sets["test"]
-        methods = [B0CohortMean(), M0NNLS(S), M1ElasticNetNNLS(S), M2MultinomialEM(S)]
+        # M3 needs the signature names as well as the matrix (for its flat-prior training tumors).
+        methods = [B0CohortMean(), M0NNLS(S), M1ElasticNetNNLS(S), M2MultinomialEM(S),
+                   M3MLP(S_df), M3MLP(S_df, broad=True)]
         majority.append({"cancer": cancer, **majority_class_check(test["exposures"])})
         # Every method sees exactly the same train, validation and test files.
         for m in methods:
@@ -184,7 +186,7 @@ def main():
             presence.append(table.assign(cancer=cancer, method=m.name))
             summary.append({"cancer": cancer, "method": m.name, "median_cosine": float(np.median(cos)),
                             "mae_active": mae_active(test["exposures"], pred), **summ})
-            if m.name in ("M0_nnls", "M2_multinomial_em"):
+            if m.name in ("M0_nnls", "M2_multinomial_em", "M3_mlp", "M3_mlp_broad"):
                 save_results(confusion_matrix_signatures(test["exposures"], pred, names),
                              f"confusion_{cancer}_{m.name}_{source}", paths, index=True)
         print(f"  {cancer}: done ({time.time() - t0:.0f}s)")

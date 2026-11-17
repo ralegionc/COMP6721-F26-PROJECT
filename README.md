@@ -11,7 +11,7 @@ estimates stop being reliable. Our outputs are research estimates, not diagnoses
 
 ```
 pip install -r requirements.txt
-pytest -q                  # 28 tests
+pytest -q                  # 37 tests
 python run_checklist.py    # synthetic demo, about 20 seconds
 ```
 
@@ -26,6 +26,9 @@ python run_checklist.py    # synthetic demo, about 20 seconds
    96-context mutation counts in `data/processed/`.
 4. `python run_checklist.py --signatures data/reference/COSMIC_v3.4_SBS_GRCh38_exome.txt`
    writes `results/run_summary_real.md` and `figures/cosine_vs_mutation_count_real.png`.
+5. `python run_evaluation.py --signatures data/reference/COSMIC_v3.4_SBS_GRCh38_exome.txt`, run after
+   step 4, adds the M3 evaluation (detection, robustness, real-data checks for every method) and the
+   final figures `figures/eval_*_real.png`; the write-up is `results/m3_evaluation_writeup.md`.
 
 The signature list for each cancer type comes from `python derive_signature_subsets.py`: we keep
 the signatures that Alexandrov et al. (2020) found in at least 5% of that type's TCGA tumors,
@@ -35,7 +38,7 @@ excluding known sequencing artifacts.
 
 | Path | Contents |
 | --- | --- |
-| `sigdet/` | Preprocessing, splits, simulator, methods (B0, M0, M1, M2), metrics and paired tests |
+| `sigdet/` | Preprocessing, splits, simulator, methods (B0, M0, M1, M2, M3), metrics, paired tests and evaluation |
 | `results/`, `figures/`, `splits/` | Our outputs; `results/week8_progress.md` is the Week 8 write-up |
 | `data/processed/`, `data/reference/` | Mutation counts, clinical labels and small reference tables |
 | `data/raw/`, genome files | Not committed; rebuilt from `data/manifest.csv` and the steps above |

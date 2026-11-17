@@ -25,11 +25,14 @@ pytest -q
 python run_checklist.py --signatures data/reference/COSMIC_v3.4_SBS_GRCh38_exome.txt
 ```
 
-- `pytest -q` should report 28 passed.
-- The last command reruns the full real-data experiment in under a minute. It does **not** need the raw
+- `pytest -q` should report 37 passed.
+- The last command reruns the full real-data experiment in about 3 minutes (most of it training M3). It does **not** need the raw
   TCGA downloads or the 3 GB reference genome: their processed output is already in `data/processed/`.
 - Afterwards, `git status` should show no changed files under `results/`, which confirms that the run
-  reproduced our numbers exactly.
+  reproduced our numbers exactly. B0 to M2 reproduce exactly on any computer; M3's numbers can differ in
+  the third decimal between computers (floating-point differences in the math libraries), so commit
+  M3 results from one agreed machine. With a different NumPy version `splits/sim_fingerprints_*.json`
+  may also change although every result agrees to about 1e-16; restore them with `git checkout splits/`.
 
 **Always run `run_checklist.py` with a flag:**
 
@@ -68,6 +71,8 @@ fingerprints, so every method is always scored on exactly the same split and the
 | File | What it does | When to run it |
 | --- | --- | --- |
 | `run_checklist.py` | The main experiment. Loads the data, makes or loads the split, simulates tumors, fits every method, computes all metrics, runs the smoking test, and writes `results/` and `figures/`. Also answers the instructor's six checklist questions in the run summary. | Yes, after any change to methods or metrics. |
+| `run_evaluation.py` | The M3 evaluation and final figures, run after `run_checklist.py` on the same split and simulated sets: per-signature detection metrics, limit of detection, M3 robustness checks (unseen signature, inverted prior), E5 for every method, checks on real tumors, and `figures/eval_*_real.png`. It reads `results/method_tests_real.csv` for the paired tests and writes only new files. | After `run_checklist.py`, for the report. |
+| `tune_m3.py` | Chooses M3's settings (layer sizes, L2 penalty `alpha`, thinning copies) on validation error only and writes `results/m3_tuning_real.csv`. | Only if we change M3. |
 | `run_method_tests.py` | Reruns only the paired Wilcoxon comparisons from the saved per-tumor scores (`--demo` for the demo run) and rewrites `results/method_tests_<source>.csv`. | Only when changing the tests; `run_checklist.py` already runs them. |
 | `gdc_download.py` | Downloads the 1,547 open-access TCGA mutation files (MAFs) and clinical records from the GDC API, checks each file's MD5 checksum, and writes `data/manifest.csv`. `--dry-run` only lists what it would download. | Not needed; its processed output is in `data/processed/`. |
 | `preprocess_data.py` | Turns the raw MAFs into mutation counts per tumor over the 96 contexts, using the reference genome to look up neighbouring bases, and builds the clinical table. Needs `--reference <genome .fa>`. | No, unless we change a preprocessing filter. |
@@ -78,7 +83,8 @@ fingerprints, so every method is always scored on exactly the same split and the
 | File | What it contains |
 | --- | --- |
 | `config.py` | All fixed settings: random seed (6721), split fractions, 5% presence threshold, 0.90 breakdown threshold, the mutation counts tested (25 to 5,000), the 96 context names, artifact signatures, and the signature list per cancer type. **Changing anything here changes every result.** |
-| `methods.py` | The estimation methods, all with the same `fit(train, val)` / `predict(counts)` interface: **B0** (always predicts the training average; our "dumb" baseline), **M0** NNLS (non-negative least squares), **M1** elastic-net NNLS (penalty strength and L1 share chosen on validation data from a 9 x 3 grid, by MAE on present signatures), **M2** multinomial maximum likelihood via the EM algorithm, with bootstrap intervals. **M3 goes here.** |
+| `methods.py` | The estimation methods, all with the same `fit(train, val)` / `predict(counts)` interface: **B0** (always predicts the training average; our "dumb" baseline), **M0** NNLS (non-negative least squares), **M1** elastic-net NNLS (penalty strength and L1 share chosen on validation data from a 9 x 3 grid, by MAE on present signatures), **M2** multinomial maximum likelihood via the EM algorithm, with bootstrap intervals. **M3** a small neural network (scikit-learn `MLPRegressor`, two hidden layers of 128 and 64 units; outputs clipped at 0 and renormalized; early stopping on our validation set) trained on simulated training tumors augmented by thinning (`M3_mlp`), and `M3_mlp_broad`, the same network with 4,000 extra flat-prior training tumors. |
+| `evaluation.py` | Helpers for `run_evaluation.py`: per-signature detection metrics, a validation-chosen threshold at 5% false alarms, the limit of detection, and the M3 robustness sets (an unseen signature mixed in; the calibrated mix inverted), built with `simulate()`. |
 | `metrics.py` | How we score methods: cosine similarity per tumor, mean absolute error on truly present signatures, per-signature precision/recall/F1/PR-AUC, the confusion matrix of dominant signatures, the breakdown point N\*, the "always absent" check that shows why accuracy is misleading, and the paired Wilcoxon tests with Holm correction that compare methods (`compare_methods`). |
 | `simulate.py` | The simulator. `calibrate()` learns typical exposures and mutation counts from **training patients only**; `simulate()` draws tumors with known exposures, adding extra noise and slightly distorted signatures so the test is not too easy. `n_active=(1, 3)` instead gives sparse tumors with 1 to 3 random active signatures. |
 | `splits.py` | The patient-level split. Extracts the 12-character patient ID from TCGA barcodes, splits patients (not samples) stratified by cancer type, checks that no patient appears in two partitions, and saves or loads the split with a tamper-check fingerprint. |
@@ -97,6 +103,7 @@ fingerprints, so every method is always scored on exactly the same split and the
 | --- | --- |
 | `test_checklist.py` | One or more tests per checklist question: valid exposure vectors, no artifact signatures, patient-level split with leak detection, simulator uses training patients only, positive-class definitions, accuracy inflation, NNLS beating B0, breakdown point, split reproducibility and tamper detection, storage layout. |
 | `test_preprocess.py` | Preprocessing on a tiny fake genome: context counting and strand folding, wrong-genome detection, caller-column handling, clinical parsing, and that M1/M2 recover known exposures. |
+| `test_m3_evaluation.py` | M3 gives valid exposures, beats a constant guess, is reproducible, and thinning keeps labels; detection metrics (a constant predictor scores 0.5), the false-alarm threshold, the limit of detection and the robustness sets. |
 | `test_methods_and_stats.py` | Holm correction against a hand computation, Wilcoxon against SciPy, tumor-by-tumor pairing in `compare_methods`, per-tumor MAE, M1's full grid search, and the sparse simulator option. |
 
 We run them with `pytest -q`, and new code comes with new tests.
@@ -136,11 +143,16 @@ Every file exists twice: `_real` (real data, the one that matters) and `_demo` (
 | `method_tests_real.csv` | Paired Wilcoxon test for every pair of methods, per cancer type, pooled (`n` = all) and at each mutation count, with Holm-adjusted p-values. |
 | `breakdown_point_real.csv` | N\* per method and cancer type. |
 | `presence_per_signature_real.csv` | Precision, recall, F1 and PR-AUC for each signature, method and cancer type. |
-| `confusion_<TYPE>_<method>_real.csv` | For M0 and M2: how often each true dominant signature was estimated as each signature. |
+| `confusion_<TYPE>_<method>_real.csv` | For M0, M2, M3 and M3 broad: how often each true dominant signature was estimated as each signature. |
 | `majority_class_check_real.csv` | What an "always absent" guess would score, per cancer type. |
 | `e5_smoking_real.csv` | Smoking test: SBS4 in smokers vs never-smokers, Mann-Whitney test, pack-years correlation. |
 | `e5_negative_controls_real.csv` | Weight given to signatures that should be absent. |
 | `signature_subsets.csv` | Why each signature was or was not selected per cancer type. |
+| `m3_evaluation_writeup.md` | M3 and evaluation write-up: what was built, results, conclusions, limitations. |
+| `evaluation_summary_real.md` | The tables behind the write-up, written by `run_evaluation.py`. |
+| `eval_*_real.csv` | Detection, limit of detection, robustness, E5 for every method, real-tumor agreement. |
+| `m3_training_history_real.csv`, `m3_tuning_real.csv` | M3 loss curves and the validation search behind its settings. |
+| `e3_fingerprints_real.json` | Checksums of the robustness simulated sets (in `data/sims/real/`, not in Git). |
 
 ### `figures/`
 
@@ -148,6 +160,7 @@ Every file exists twice: `_real` (real data, the one that matters) and `_demo` (
 | --- | --- |
 | `cosine_vs_mutation_count_real.png` | Median cosine against mutation count for each method and cancer type, with the 0.90 line that defines N\*. |
 | `e5_sbs4_smoking_real.png` | Estimated SBS4 weight per LUAD patient, lifelong non-smokers against smokers. |
+| `eval_fig1` to `eval_fig8` (`_real.png`) | Final figures from `run_evaluation.py`: accuracy vs mutation count with IQR bands, detection and limit of detection, recall vs signature prevalence, robustness, confusion matrices, E5 for every method, M3 training curves, and reconstruction on real tumors. |
 
 ### Other files
 
@@ -168,11 +181,13 @@ Every file exists twice: `_real` (real data, the one that matters) and `_demo` (
   `sigdet/simulate.py`, not a separate simulator.
 
 **Neural network (M3), evaluation and figures**
-- M3 is a class in `sigdet/methods.py` with a `name` attribute, `fit(train, val=None)` and
-  `predict(counts)`. `train` and `val` are dicts with `"counts"` (tumors x 96) and `"exposures"`
-  (tumors x signatures). `predict` must return non-negative rows that sum to 1.
-- Adding it to the `methods = [...]` list in `run_checklist.py` scores it on exactly the same test
-  tumors as the other methods, and it then appears in every results file and the figure.
+- M3 (`M3MLP` in `sigdet/methods.py`) is in the `methods = [...]` list of `run_checklist.py`, so it is
+  scored on exactly the same test tumors as the other methods and appears in every results file,
+  including the paired tests.
+- Adding M3 grows the Holm family in `compare_methods` (15 method pairs instead of 6), so a few
+  borderline per-count p-values among B0 to M2 rise above 0.05. Pooled results are unchanged.
+- Further evaluation and the final figures live in `run_evaluation.py` and `sigdet/evaluation.py`; a
+  method added to `make_methods()` there gets the detection, robustness and real-data checks too.
 
 **Ground rules**
 - Nothing in `splits/` is edited or regenerated, and `sigdet/config.py` changes only by team agreement.

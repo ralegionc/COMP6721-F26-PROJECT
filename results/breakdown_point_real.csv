@@ -3,3 +3,5 @@ B0_cohort_mean,2500,,25
 M0_nnls,250,50.0,50
 M1_elastic_net,250,50.0,50
 M2_multinomial_em,100,50.0,25
+M3_mlp,25,25.0,25
+M3_mlp_broad,25,25.0,25
